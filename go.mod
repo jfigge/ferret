@@ -1,4 +1,4 @@
-module auto-ssh2
+module us.figge.ferret
 
 go 1.21
 

@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"auto-ssh2/internal"
+	"us.figge.ferret/internal"
 )
 
 const (
@@ -61,11 +61,11 @@ func defaultValues() {
 	username = currentUser.Username
 	switch runtime.GOOS {
 	case GoosLinux:
-		configFile = fmt.Sprintf("/home/%s/.auto-ssh/config.yaml", currentUser.Username)
+		configFile = fmt.Sprintf("/home/%s/.ferret/config.yaml", currentUser.Username)
 	case GoosDarwin:
-		configFile = fmt.Sprintf("/Users/%s/.auto-ssh/config.yaml", currentUser.Username)
+		configFile = fmt.Sprintf("/Users/%s/.ferret/config.yaml", currentUser.Username)
 	case GoosWindows:
-		configFile = fmt.Sprintf("C:\\Users\\%s\\.auto-ssh\\config.yaml", currentUser.Username)
+		configFile = fmt.Sprintf("C:\\Users\\%s\\.ferret\\config.yaml", currentUser.Username)
 	default:
 		fmt.Printf("  Error - unsupported OS type: %s\n", runtime.GOOS)
 		terminate(1)

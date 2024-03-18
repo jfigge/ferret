@@ -1,4 +1,4 @@
-PROJECT_NAME = auto-ssh
+PROJECT_NAME = ferret
 
 # build output
 BINARY       ?= ${PROJECT_NAME}
