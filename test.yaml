@@ -1,0 +1,11 @@
+hosts:
+  - name: Review-Bastion
+    address: 54.245.154.52:22
+    username: ec2-user
+    identity: /Users/jason.figge/.ssh/pingidp2.pem
+    known_hosts: /Users/jason.figge/.ssh/known_hosts
+tunnels:
+  - name: Non-Prod LDAP CS&S
+    local: 0.0.0.0:1636
+    host:  Review-Bastion
+    forward: ldaps.qacustomer.teradata.com:636
