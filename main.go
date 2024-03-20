@@ -32,7 +32,7 @@ var (
 var (
 	helpFlag    bool
 	versionFlag bool
-	verboseFlag int
+	verboseFlag bool
 	configFile  string
 	username    string
 	sigTerm     chan struct{}
@@ -47,7 +47,7 @@ func main() {
 	MonitorShutdown()
 	StartTunnels()
 
-	if verboseFlag > 0 {
+	if verboseFlag {
 		fmt.Printf(" Status - All tunnels closed.  Stopped\n")
 	}
 }
@@ -80,11 +80,7 @@ func parseCommandLine() {
 		case "-V", "--version":
 			versionFlag = true
 		case "-v", "--verbose":
-			verboseFlag = 1
-		case "-vv", "--very-verbose":
-			verboseFlag = 2
-		case "-vvv", "--very-very-verbose":
-			verboseFlag = 3
+			verboseFlag = true
 		case "-c", "--config":
 			index++
 			configFile = parameter(index)
@@ -117,9 +113,12 @@ func parameter(index int) string {
 }
 
 func LoadConfiguration() {
-	config = config.Load(configFile)
+	config = config.Load(configFile, verboseFlag)
 	if config == nil {
 		terminate(1)
+	}
+	if verboseFlag {
+		fmt.Printf("  Info  - Using config file: %s\n", configFile)
 	}
 
 	if !config.Validate(username) {
@@ -145,7 +144,6 @@ func StartTunnels() {
 		go func(t *internal.Tunnel) {
 			defer func() {
 				wg.Done()
-				fmt.Printf("Closing tunnel: %s", t.Name)
 			}()
 			listenerChan := make(chan bool)
 			go monitorForFailureToConnect(listenerChan)
@@ -174,7 +172,7 @@ func help() {
 }
 
 func version() {
-	if verboseFlag == 0 {
+	if verboseFlag {
 		fmt.Printf(
 			"%s verison %s %s/%s, build %s, commit %s\n",
 			os.Args[0], Version, runtime.GOOS, runtime.GOARCH, BuildNumber, Commit,

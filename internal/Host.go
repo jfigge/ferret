@@ -21,16 +21,6 @@ var (
 	}
 )
 
-var (
-// connection  = atomic.Int32{}
-// connections = atomic.Int32{}
-// nextPort = atomic.Int32{}
-)
-
-func init() {
-	nextPort.Add(46521)
-}
-
 type Host struct {
 	Name       string   `yaml:"name" json:"name"`
 	Address    *Address `yaml:"address" json:"address"`
@@ -73,11 +63,6 @@ func (h *Host) Dial(address string) (net.Conn, bool) {
 	return conn, true
 }
 
-func (h *Host) OpenJumpHost(sigTerm chan struct{}, listeningChan chan<- bool) {
-	openPort := freePort()
-	fmt.Printf("Free port: %d\n", openPort)
-}
-
 func (h *Host) Validate(defaultUsername string) bool {
 	valid := true
 
@@ -92,26 +77,26 @@ func (h *Host) Validate(defaultUsername string) bool {
 	}
 
 	h.Username = strings.TrimSpace(h.Username)
-	if strings.TrimSpace(h.Username) == "" {
-		fmt.Printf("  Info  - host(%s) will use default username: %s\n", h.Name, defaultUsername)
+	if strings.TrimSpace(h.Username) == "" && verboseFlag {
+		fmt.Printf("  Info  - host (%s) will use default username: %s\n", h.Name, defaultUsername)
 		h.Username = defaultUsername
 	}
 
 	h.KnownHosts = strings.TrimSpace(h.KnownHosts)
 	if _, ok := hostKeysMap[h.KnownHosts]; !ok {
 		if fi, err := os.Stat(h.KnownHosts); os.IsNotExist(err) {
-			fmt.Printf("  Error - host(%s) known_hosts file (%s) cannot be read: file not found\n", h.Name, h.KnownHosts)
+			fmt.Printf("  Error - host (%s) known_hosts file (%s) cannot be read: file not found\n", h.Name, h.KnownHosts)
 			valid = false
 		} else if fi.IsDir() {
-			fmt.Printf("  Error - host(%s) known_hosts file (%s) cannot be read: file is a directory\n", h.Name, h.KnownHosts)
+			fmt.Printf("  Error - host (%s) known_hosts file (%s) cannot be read: file is a directory\n", h.Name, h.KnownHosts)
 			valid = false
 		} else {
 			var hostKeyCallback ssh.HostKeyCallback
 			if hostKeyCallback, err = knownhosts.New(h.KnownHosts); os.IsPermission(err) {
-				fmt.Printf("  Error - host(%s) known_hosts file (%s) cannot be read: permission denied\n", h.Name, h.KnownHosts)
+				fmt.Printf("  Error - host (%s) known_hosts file (%s) cannot be read: permission denied\n", h.Name, h.KnownHosts)
 				valid = false
 			} else if err != nil {
-				fmt.Printf("  Error - host(%s) known_hosts file (%s) cannot be read: %v\n", h.Name, h.KnownHosts, err)
+				fmt.Printf("  Error - host (%s) known_hosts file (%s) cannot be read: %v\n", h.Name, h.KnownHosts, err)
 				valid = false
 			} else {
 				hostKeysMap[h.KnownHosts] = hostKeyCallback
@@ -121,24 +106,24 @@ func (h *Host) Validate(defaultUsername string) bool {
 
 	h.Identity = strings.TrimSpace(h.Identity)
 	if h.Identity == "" {
-		fmt.Printf("  Error - host(%s) missing identity file\n", h.Name)
+		fmt.Printf("  Error - host (%s) missing identity file\n", h.Name)
 		valid = false
 	}
 	if _, ok := identityMap[h.Identity]; !ok {
 		if fi, err := os.Stat(h.Identity); os.IsNotExist(err) {
-			fmt.Printf("  Error - host(%s) identity file (%s) cannot be read: file not found\n", h.Name, h.Identity)
+			fmt.Printf("  Error - host (%s) identity file (%s) cannot be read: file not found\n", h.Name, h.Identity)
 			valid = false
 		} else if fi.IsDir() {
-			fmt.Printf("  Error - host(%s) identity file (%s) cannot be read: file is a directory\n", h.Name, h.Identity)
+			fmt.Printf("  Error - host (%s) identity file (%s) cannot be read: file is a directory\n", h.Name, h.Identity)
 			valid = false
 		} else {
 			var key []byte
 			key, err = os.ReadFile(h.Identity)
 			if os.IsPermission(err) {
-				fmt.Printf("  Error - host(%s) identity file (%s) cannot be read: permission denied\n", h.Name, h.Identity)
+				fmt.Printf("  Error - host (%s) identity file (%s) cannot be read: permission denied\n", h.Name, h.Identity)
 				valid = false
 			} else if err != nil {
-				fmt.Printf("  Error - host(%s) identity file (%s) cannot be read: %v\n", h.Name, h.Identity, err)
+				fmt.Printf("  Error - host (%s) identity file (%s) cannot be read: %v\n", h.Name, h.Identity, err)
 				valid = false
 			} else {
 				var signer ssh.Signer
@@ -149,7 +134,7 @@ func (h *Host) Validate(defaultUsername string) bool {
 					signer, err = ssh.ParsePrivateKey(key)
 				}
 				if err != nil {
-					fmt.Printf("  Error - host(%s) identity file (%s) cannot be decode: %v\n", h.Name, h.Identity, err)
+					fmt.Printf("  Error - host (%s) identity file (%s) cannot be decode: %v\n", h.Name, h.Identity, err)
 					valid = false
 				} else {
 					identityMap[h.Identity] = signer
@@ -159,7 +144,7 @@ func (h *Host) Validate(defaultUsername string) bool {
 	}
 
 	if h.Address.IsBlank() {
-		fmt.Printf("  Error - host(%s) requires an address\n", h.Name)
+		fmt.Printf("  Error - host (%s) requires an address\n", h.Name)
 		valid = false
 	} else if !h.Address.ValidateAddress("host", h.Name, "address", h.JumpHost != "") {
 		valid = false
@@ -167,7 +152,7 @@ func (h *Host) Validate(defaultUsername string) bool {
 
 	if h.JumpHost != "" {
 		if h.JumpHost == h.Name {
-			fmt.Printf("  Error - host(%s) jump_host cannot reference itself\n", h.Name)
+			fmt.Printf("  Error - host (%s) jump_host cannot reference itself\n", h.Name)
 			valid = false
 		} else {
 			h.KnownHosts = ""
@@ -181,6 +166,9 @@ func (h *Host) Validate(defaultUsername string) bool {
 		HostKeyCallback: hostKeysMap[h.KnownHosts],
 	}
 
+	if verboseFlag && valid {
+		fmt.Printf("  Info - host (%s) validated\n", h.Name)
+	}
 	Hosts[h.Name] = h
 	return valid
 }
@@ -193,32 +181,50 @@ func (h *Host) IsHost() bool {
 	return h.isHost
 }
 
-func freePort() interface{} {
+func freePort() (net.Listener, int32, bool) {
 	if address, err := net.ResolveTCPAddr("tcp", "localhost:0"); err == nil {
 		var listener net.Listener
 		listener, err = net.ListenTCP("tcp", address)
 		if err == nil {
-			defer func() { _ = listener.Close() }()
-			return listener.Addr().(*net.TCPAddr).Port
+			return listener, int32(listener.Addr().(*net.TCPAddr).Port), true
 		}
+		_ = listener.Close()
 	}
-	port := nextPort.Add(1)
-	fmt.Printf("  Warning - Failed to selected open port.  Selecting %d\n", port)
-	return port
+	return nil, -1, false
 }
 
 func validateJumpHosts() bool {
 	valid := true
+	var freePortListeners []net.Listener
+	defer func() {
+		for _, listener := range freePortListeners {
+			_ = listener.Close()
+		}
+	}()
 	for _, h := range Hosts {
 		if h.JumpHost != "" && h.isHost {
 			if jumpHost, ok := Hosts[h.JumpHost]; !ok {
-				fmt.Printf("  Error - host(%s) jump_host(%s) is not defined\n", h.Name, h.JumpHost)
+				fmt.Printf("  Error - host (%s) jump_host (%s) is not defined\n", h.Name, h.JumpHost)
 				valid = false
 			} else if jumpHost.JumpHost != "" {
-				fmt.Printf("  Error - host(%s) requires multi-host jumps and is not supported", h.Name)
+				fmt.Printf("  Error - host (%s) requires multi-host jumps and is not supported", h.Name)
 				valid = false
 			} else {
-				jumpHost.isJumpHost = true
+				listener, port, found := freePort()
+				if !found {
+					valid = false
+					break
+				} else {
+					jumpTunnel := &Tunnel{
+						Name:    fmt.Sprintf("%s jumphost", jumpHost.Name),
+						Local:   NewAddress(fmt.Sprintf("0.0.0.0:%d", port)),
+						Host:    h.JumpHost,
+						Forward: h.Address,
+					}
+					jumpTunnel.Validate()
+					h.Address = jumpTunnel.Local
+					freePortListeners = append(freePortListeners, listener)
+				}
 			}
 		}
 	}

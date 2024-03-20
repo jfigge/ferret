@@ -9,12 +9,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+var verboseFlag bool
+
 type Configuration struct {
 	Hosts   []*Host   `yaml:"hosts"`
 	Tunnels []*Tunnel `yaml:"tunnels"`
 }
 
-func (c *Configuration) Load(configFile string) *Configuration {
+func (c *Configuration) Load(configFile string, verbose bool) *Configuration {
+	verboseFlag = verbose
 	if fi, err := os.Stat(configFile); os.IsNotExist(err) {
 		fmt.Printf("  Error - config file (%s) cannot be read: file not found\n", configFile)
 		return nil
@@ -66,7 +69,7 @@ func (c *Configuration) Validate(defaultUsername string) bool {
 	var unused []string
 	for name, host := range Hosts {
 		if !host.isHost && !host.isJumpHost {
-			fmt.Printf("  Info  - host(%s) is unused\n", name)
+			fmt.Printf("  Info  - host (%s) is unused\n", name)
 			unused = append(unused, name)
 		}
 	}

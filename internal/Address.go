@@ -3,6 +3,7 @@ package internal
 import (
 	"fmt"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -19,6 +20,8 @@ func NewAddress(address string) *Address {
 	}
 }
 
+var regex = regexp.MustCompile("")
+
 func (a *Address) ValidateAddress(group string, name string, attr string, remote bool) bool {
 	a.valid = true
 	parts := strings.Split(a.address, ":")
@@ -30,30 +33,30 @@ func (a *Address) ValidateAddress(group string, name string, attr string, remote
 		a.valid = false
 		return false
 	}
-	if !remote {
-		ips, err := net.LookupIP(parts[0])
-		if err != nil {
+
+	ips, err := net.LookupIP(parts[0])
+	if err != nil {
+		if !remote {
 			fmt.Printf("  Error - %s(%s) %s(%s) cannot be resolved\n", group, name, attr, parts[0])
 			a.valid = false
-		} else if len(ips) == 0 {
+		} else {
+			fmt.Printf("  Warn  - %s(%s) %s(%s) cannot be resolved local\n", group, name, attr, parts[0])
+		}
+	} else if len(ips) == 0 {
+		fmt.Printf(
+			"  Error - %s(%s) %s(%s) has no valid IP addresses associated with it\n",
+			group, name, attr, parts[0],
+		)
+		a.valid = false
+	} else {
+		if ipv4 := ips[0].To4(); ipv4 == nil {
 			fmt.Printf(
-				"  Error - %s(%s) %s(%s) has no valid IP addresses associated with it\n",
+				"  Error - %s(%s) %s(%s) cannot be converted to a valid IP4 address\n",
 				group, name, attr, parts[0],
 			)
-			a.valid = false
 		} else {
-			if ipv4 := ips[0].To4(); ipv4 == nil {
-				fmt.Printf(
-					"  Error - %s(%s) %s(%s) cannot be converted to a valid IP4 address\n",
-					group, name, attr, parts[0],
-				)
-			} else {
-				a.address = ipv4.String()
-			}
+			a.address = ipv4.String()
 		}
-	} else {
-		fmt.Printf("  Warn  - %s(%s) %s(%s) cannot be validated locally\n", group, name, attr, parts[0])
-		a.address = parts[0]
 	}
 
 	if i, err := strconv.Atoi(parts[1]); err != nil {
