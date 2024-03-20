@@ -1,2 +1,4 @@
 .idea/
 ferret-*
+*.yaml
+*.json
