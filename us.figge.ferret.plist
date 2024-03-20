@@ -17,7 +17,6 @@
 	<key>ProgramArguments</key>
 	<array>
 		<string>/Users/jason.figge/Develop/shell/commands/ferret</string>
-        <string>-vv</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>

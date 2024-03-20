@@ -3,7 +3,6 @@ package internal
 import (
 	"fmt"
 	"net"
-	"regexp"
 	"strconv"
 	"strings"
 )
@@ -19,8 +18,6 @@ func NewAddress(address string) *Address {
 		address: address,
 	}
 }
-
-var regex = regexp.MustCompile("")
 
 func (a *Address) ValidateAddress(group string, name string, attr string, remote bool) bool {
 	a.valid = true
