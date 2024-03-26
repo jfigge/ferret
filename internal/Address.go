@@ -51,8 +51,10 @@ func (a *Address) ValidateAddress(group string, name string, attr string, remote
 				"  Error - %s(%s) %s(%s) cannot be converted to a valid IP4 address\n",
 				group, name, attr, parts[0],
 			)
-		} else {
+		} else if !remote {
 			a.address = ipv4.String()
+		} else {
+			a.address = parts[0]
 		}
 	}
 
