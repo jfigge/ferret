@@ -168,7 +168,7 @@ func (s *StatsManager) writeUpdate(update []byte) {
 }
 
 func (s *StatsManager) receiveStats(ctx context.Context) {
-	fmt.Printf("ferret already running\n")
+	fmt.Printf("Multiple instances running. Entering stats mode\n")
 	conn, err := net.DialTimeout("tcp", s.statsAddress, time.Second*5)
 	if err != nil {
 		return
