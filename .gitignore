@@ -1,4 +1,7 @@
 .idea/
+.run/**
 ferret-*
 *.yaml
+*.yaml.bak
 *.json
+*.json.bak

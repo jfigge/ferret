@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
 	"os/user"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -35,24 +37,29 @@ var (
 	verboseFlag bool
 	configFile  string
 	username    string
-	sigTerm     chan struct{}
+	statsPort   int
 	config      *internal.Configuration
+	cancel      func()
 )
 
 func main() {
-	sigTerm = make(chan struct{})
+	var ctx context.Context
+	ctx, cancel = context.WithCancel(context.Background())
 	defaultValues()
 	parseCommandLine()
-	LoadConfiguration()
-	MonitorShutdown()
-	StartTunnels()
-
+	loadConfiguration()
+	monitorShutdown()
+	stats := internal.NewStats(statsPort)
+	if ok := stats.StartStatsTunnel(ctx); ok {
+		startTunnels(ctx, stats.UpdateChannel())
+	}
 	if verboseFlag {
 		fmt.Printf(" Status - All tunnels closed.  Stopped\n")
 	}
 }
 
 func defaultValues() {
+	statsPort = 2663
 	currentUser, err := user.Current()
 	if err != nil {
 		fmt.Printf("  Error - failed to lookup current user: %v\n", err)
@@ -81,6 +88,9 @@ func parseCommandLine() {
 			versionFlag = true
 		case "-v", "--verbose":
 			verboseFlag = true
+		case "-p", "--stats-port":
+			index++
+			statsPort = parameterInt(index)
 		case "-c", "--config":
 			index++
 			configFile = parameter(index)
@@ -112,7 +122,17 @@ func parameter(index int) string {
 	return ""
 }
 
-func LoadConfiguration() {
+func parameterInt(index int) int {
+	value := parameter(index)
+	i, err := strconv.ParseInt(value, 10, 32)
+	if err != nil {
+		fmt.Printf("  Error - paramreter %s expected an int value\n", os.Args[index-1])
+		terminate(1)
+	}
+	return int(i)
+}
+
+func loadConfiguration() {
 	config = config.Load(configFile, verboseFlag)
 	if config == nil {
 		terminate(1)
@@ -126,18 +146,18 @@ func LoadConfiguration() {
 	}
 }
 
-func MonitorShutdown() {
+func monitorShutdown() {
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
-
 	go func() {
 		<-shutdown
+		cancel()
 		fmt.Printf("%s terminated\n", os.Args[0])
 		terminate(1)
 	}()
 }
 
-func StartTunnels() {
+func startTunnels(ctx context.Context, updateChan chan struct{}) {
 	wg := sync.WaitGroup{}
 	for _, tunnel := range internal.Tunnels {
 		wg.Add(1)
@@ -147,7 +167,7 @@ func StartTunnels() {
 			}()
 			listenerChan := make(chan bool)
 			go monitorForFailureToConnect(listenerChan)
-			t.Open(sigTerm, listenerChan)
+			t.Open(ctx, listenerChan, updateChan)
 		}(tunnel)
 	}
 	wg.Wait()
@@ -164,10 +184,11 @@ func monitorForFailureToConnect(listener <-chan bool) {
 func help() {
 	fmt.Printf("Automatic tunneling on demand\n")
 	fmt.Printf("Usage:\n")
-	fmt.Printf("  -h, --help     Display this message.\n")
-	fmt.Printf("  -c, --config   Specify the tunnel configuration file\n")
-	fmt.Printf("  -v, --verbose  Verbose mode.  Prints progress debug messages.\n")
-	fmt.Printf("  -V, --version  Display version information.\n")
+	fmt.Printf("  -h, --help        Display this message.\n")
+	fmt.Printf("  -c, --config      Specify the tunnel configuration file\n")
+	fmt.Printf("  -p, --stats-port  Ferret stats port.  Default is 2663\n")
+	fmt.Printf("  -v, --verbose     Verbose mode.  Prints progress debug messages.\n")
+	fmt.Printf("  -V, --version     Display version information.\n")
 	terminate(0)
 }
 
@@ -191,7 +212,6 @@ func terminate(code int) {
 		defer func() {
 			_ = recover()
 		}()
-		close(sigTerm)
 	}()
 	<-time.NewTimer(time.Second).C
 	fmt.Printf("Terminated\n")

@@ -19,10 +19,16 @@ func NewAddress(address string) *Address {
 	}
 }
 
-func (a *Address) ValidateAddress(group string, name string, attr string, remote bool) bool {
+func (a *Address) Validate(group string, name string, attr string, remote bool, defaultPort bool) bool {
 	a.valid = true
 	parts := strings.Split(a.address, ":")
-	if len(parts) != 2 {
+	if len(parts) == 1 {
+		if defaultPort {
+			parts = []string{parts[0], "22"}
+		} else {
+			parts = []string{"0.0.0.0", parts[0]}
+		}
+	} else if len(parts) > 2 {
 		fmt.Printf(
 			"  Error - %s(%s) %s(%s) is invalid.  Required syntax is <ip address>:<port>\n",
 			group, name, attr, a.address,

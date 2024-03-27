@@ -13,7 +13,8 @@ import (
 )
 
 var (
-	Tunnels = make(map[string]*Tunnel)
+	Tunnels         = make(map[string]*Tunnel)
+	errInvalidWrite = errors.New("invalid write result")
 )
 
 type HostName struct {
@@ -25,6 +26,7 @@ type Tunnel struct {
 	Local   *Address `yaml:"local,omitempty" json:"local,omitempty"`
 	Host    string   `yaml:"host" json:"host"`
 	Forward *Address `yaml:"forward" json:"forward"`
+	stats   *TunnelStats
 }
 
 var (
@@ -32,7 +34,9 @@ var (
 	connections = atomic.Int32{}
 )
 
-func (t *Tunnel) Open(sigTerm chan struct{}, listeningChan chan<- bool) {
+func (t *Tunnel) Open(ctx context.Context, listeningChan chan<- bool, updateChan chan struct{}) {
+	t.stats = &TunnelStats{Name: t.Name, updateChan: updateChan}
+	tunnelStats = append(tunnelStats, t.stats)
 	localListener, err := net.Listen("tcp", t.Local.address)
 	if err != nil {
 		fmt.Printf("  Error - tunnel (%s) entrance (%s) cannot be created: %v\n", t.Name, t.Local.address, err)
@@ -44,7 +48,7 @@ func (t *Tunnel) Open(sigTerm chan struct{}, listeningChan chan<- bool) {
 
 	// Wait indefinitely until the sigTerm channel closes
 	go func() {
-		<-sigTerm
+		<-ctx.Done()
 		fmt.Printf("  Info  - tunnel (%s) stopped listening on %s\n", t.Name, t.Local.address)
 		_ = localListener.Close()
 	}()
@@ -52,6 +56,7 @@ func (t *Tunnel) Open(sigTerm chan struct{}, listeningChan chan<- bool) {
 	for {
 		var localConn net.Conn
 		localConn, err = localListener.Accept()
+		updateChan <- struct{}{}
 		if err != nil {
 			var opErr *net.OpError
 			if errors.As(err, &opErr) {
@@ -69,6 +74,7 @@ func (t *Tunnel) Open(sigTerm chan struct{}, listeningChan chan<- bool) {
 }
 
 func (t *Tunnel) forward(localConn net.Conn) {
+	t.stats.Connections++
 	connection.Add(1)
 	id := connection.Load()
 
@@ -100,7 +106,7 @@ func (t *Tunnel) forward(localConn net.Conn) {
 	go func() {
 		connections.Add(1)
 		defer wg.Done()
-		_, err1 := io.Copy(sshConn, localConn)
+		err1 := t.copy(sshConn, localConn, true)
 		connected1 = false
 		connections.Add(-1)
 		if verboseFlag {
@@ -118,7 +124,7 @@ func (t *Tunnel) forward(localConn net.Conn) {
 	go func() {
 		connections.Add(1)
 		defer wg.Done()
-		_, err2 := io.Copy(localConn, sshConn)
+		err2 := t.copy(localConn, sshConn, false)
 		connected2 = false
 		connections.Add(-1)
 		if verboseFlag {
@@ -152,19 +158,20 @@ func (t *Tunnel) Validate() bool {
 		valid = false
 	}
 
-	if t.Forward.IsBlank() {
+	if t.Forward == nil || t.Forward.IsBlank() {
 		fmt.Printf("  Error - tunnel (%s) requires a forward address\n", t.Name)
 		valid = false
-	} else if !t.Forward.ValidateAddress("tunnel", t.Name, "forward address", true) {
+	} else if !t.Forward.Validate("tunnel", t.Name, "forward address", true, false) {
 		valid = false
 	}
 
-	if t.Local.IsBlank() && t.Forward.IsValid() {
-		t.Local = NewAddress(fmt.Sprintf("0.0.0.0:%d", t.Forward.Port()))
+	if (t.Local == nil || t.Local.IsBlank()) && t.Forward != nil && t.Forward.IsValid() {
+		fmt.Printf("  Warn  - tunnel (%s) Local entrance undefined. Defaulting to 127.0.0.1:%d\n", t.Name, t.Forward.Port())
+		t.Local = NewAddress(fmt.Sprintf("127.0.0.1:%d", t.Forward.Port()))
 	}
-	if t.Local.IsBlank() {
+	if t.Local == nil || t.Local.IsBlank() {
 		fmt.Printf("  Error - tunnel (%s) missing a local address that cannot be derived\n", t.Name)
-	} else if !t.Local.ValidateAddress("tunnel", t.Name, "local address", true) {
+	} else if !t.Local.Validate("tunnel", t.Name, "local address", true, false) {
 		valid = false
 	}
 
@@ -173,7 +180,7 @@ func (t *Tunnel) Validate() bool {
 		fmt.Printf("  Error - tunnel (%s) missing remote host\n", t.Name)
 		valid = false
 	} else if host, ok := Hosts[t.Host]; !ok {
-		fmt.Printf("  Error - tunnel (%s) remote host (%s) not defined\n", t.Name, t.Host)
+		fmt.Printf("  Error - tunnel (%s) remote host (%s) undefined\n", t.Name, t.Host)
 		valid = false
 	} else {
 		host.isHost = true
@@ -206,4 +213,44 @@ func (t *Tunnel) autoClose(ctx context.Context, conn net.Conn, conn2 net.Conn, i
 	if verboseFlag {
 		fmt.Printf("  Info  - tunnel (%s) id:%d c:%d auto-closer %s\n", t.Name, id, connections.Load(), status)
 	}
+}
+
+func (t *Tunnel) copy(dst io.Writer, src io.Reader, read bool) (err error) {
+	buf := make([]byte, 32*1024)
+	for {
+		nr, er := src.Read(buf)
+		if nr > 0 {
+			nw, ew := dst.Write(buf[0:nr])
+			if nw < 0 || nr < nw {
+				nw = 0
+				if ew == nil {
+					ew = errInvalidWrite
+				}
+			}
+			if t.stats != nil {
+				if read {
+					t.stats.Received += int64(nw)
+					t.stats.updateChan <- struct{}{}
+				} else {
+					t.stats.Transmitted += int64(nw)
+					t.stats.updateChan <- struct{}{}
+				}
+			}
+			if ew != nil {
+				err = ew
+				break
+			}
+			if nr != nw {
+				err = io.ErrShortWrite
+				break
+			}
+		}
+		if er != nil {
+			if er != io.EOF {
+				err = er
+			}
+			break
+		}
+	}
+	return err
 }

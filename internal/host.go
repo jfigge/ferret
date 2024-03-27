@@ -143,10 +143,10 @@ func (h *Host) Validate(defaultUsername string) bool {
 		}
 	}
 
-	if h.Address.IsBlank() {
+	if h.Address == nil || h.Address.IsBlank() {
 		fmt.Printf("  Error - host (%s) requires an address\n", h.Name)
 		valid = false
-	} else if !h.Address.ValidateAddress("host", h.Name, "address", h.JumpHost != "") {
+	} else if !h.Address.Validate("host", h.Name, "address", h.JumpHost != "", true) {
 		valid = false
 	}
 
@@ -217,7 +217,7 @@ func validateJumpHosts() bool {
 				} else {
 					jumpTunnel := &Tunnel{
 						Name:    fmt.Sprintf("%s jumphost", jumpHost.Name),
-						Local:   NewAddress(fmt.Sprintf("0.0.0.0:%d", port)),
+						Local:   NewAddress(fmt.Sprintf("127.0.0.1:%d", port)),
 						Host:    h.JumpHost,
 						Forward: h.Address,
 					}
