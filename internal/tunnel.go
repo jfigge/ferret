@@ -22,11 +22,12 @@ type HostName struct {
 }
 
 type Tunnel struct {
-	Name    string   `yaml:"name" json:"name"`
-	Local   *Address `yaml:"local,omitempty" json:"local,omitempty"`
-	Host    string   `yaml:"host" json:"host"`
-	Forward *Address `yaml:"forward" json:"forward"`
-	stats   *TunnelStats
+	Name       string   `yaml:"name" json:"name"`
+	Local      *Address `yaml:"local,omitempty" json:"local,omitempty"`
+	Host       string   `yaml:"host" json:"host"`
+	Forward    *Address `yaml:"forward" json:"forward"`
+	stats      *TunnelStats
+	updateChan chan struct{}
 }
 
 var (
@@ -34,9 +35,16 @@ var (
 	connections = atomic.Int32{}
 )
 
-func (t *Tunnel) Open(ctx context.Context, listeningChan chan<- bool, updateChan chan struct{}) {
-	t.stats = &TunnelStats{Name: t.Name, updateChan: updateChan}
-	tunnelStats = append(tunnelStats, t.stats)
+func (t *Tunnel) Init(updateChan chan struct{}) {
+	t.updateChan = updateChan
+	t.stats = &TunnelStats{Name: t.Name}
+}
+
+func (t *Tunnel) Stats() *TunnelStats {
+	return t.stats
+}
+
+func (t *Tunnel) Open(ctx context.Context, listeningChan chan<- bool) {
 	localListener, err := net.Listen("tcp", t.Local.address)
 	if err != nil {
 		fmt.Printf("  Error - tunnel (%s) entrance (%s) cannot be created: %v\n", t.Name, t.Local.address, err)
@@ -56,7 +64,7 @@ func (t *Tunnel) Open(ctx context.Context, listeningChan chan<- bool, updateChan
 	for {
 		var localConn net.Conn
 		localConn, err = localListener.Accept()
-		updateChan <- struct{}{}
+		t.updateChan <- struct{}{}
 		if err != nil {
 			var opErr *net.OpError
 			if errors.As(err, &opErr) {
@@ -95,6 +103,7 @@ func (t *Tunnel) forward(localConn net.Conn) {
 
 	wg := sync.WaitGroup{}
 	wg.Add(2)
+	t.stats.Connected++
 	ctx, cancel := context.WithCancel(context.Background())
 	closer := func() {
 		t.autoClose(ctx, sshConn, localConn, id)
@@ -139,6 +148,7 @@ func (t *Tunnel) forward(localConn net.Conn) {
 	}()
 
 	wg.Wait()
+	t.stats.Connected--
 	cancel()
 	if verboseFlag {
 		fmt.Printf("  Info  - id:%d c:%d closing connection %s\n", id, connections.Load(), localConn.RemoteAddr())
@@ -230,10 +240,10 @@ func (t *Tunnel) copy(dst io.Writer, src io.Reader, read bool) (err error) {
 			if t.stats != nil {
 				if read {
 					t.stats.Received += int64(nw)
-					t.stats.updateChan <- struct{}{}
+					t.updateChan <- struct{}{}
 				} else {
 					t.stats.Transmitted += int64(nw)
-					t.stats.updateChan <- struct{}{}
+					t.updateChan <- struct{}{}
 				}
 			}
 			if ew != nil {

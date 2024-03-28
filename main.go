@@ -51,7 +51,7 @@ func main() {
 	monitorShutdown()
 	stats := internal.NewStats(statsPort)
 	if ok := stats.StartStatsTunnel(ctx); ok {
-		startTunnels(ctx, stats.UpdateChannel())
+		startTunnels(ctx, stats)
 	}
 	if verboseFlag {
 		fmt.Printf(" Status - All tunnels closed.  Stopped\n")
@@ -157,17 +157,19 @@ func monitorShutdown() {
 	}()
 }
 
-func startTunnels(ctx context.Context, updateChan chan struct{}) {
+func startTunnels(ctx context.Context, stats *internal.StatsManager) {
 	wg := sync.WaitGroup{}
 	for _, tunnel := range internal.Tunnels {
 		wg.Add(1)
+		tunnel.Init(stats.UpdateChannel())
+		stats.AddTunnelStats(tunnel.Stats())
 		go func(t *internal.Tunnel) {
 			defer func() {
 				wg.Done()
 			}()
 			listenerChan := make(chan bool)
 			go monitorForFailureToConnect(listenerChan)
-			t.Open(ctx, listenerChan, updateChan)
+			t.Open(ctx, listenerChan)
 		}(tunnel)
 	}
 	wg.Wait()

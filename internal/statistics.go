@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -15,23 +16,27 @@ import (
 )
 
 var (
-	tunnelStats []*TunnelStats
-	zeros       = string([]byte{
-		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	zeros = string([]byte{
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	})
 	p        = message.NewPrinter(language.English)
 	interval = time.Second * 5
 )
 
 type TunnelStats struct {
+	id          int
 	Name        string `json:"name"`
+	Connected   int    `json:"connected"`
 	Connections int    `json:"connections"`
 	Received    int64  `json:"received"`
 	Transmitted int64  `json:"transmitted"`
-	updateChan  chan struct{}
 }
 
 type StatsManager struct {
@@ -43,6 +48,7 @@ type StatsManager struct {
 	lock          sync.Mutex
 	updated       bool
 	lastUpdate    []byte
+	tunnelStats   []*TunnelStats
 }
 
 func NewStats(statsPort int) *StatsManager {
@@ -132,7 +138,7 @@ func (s *StatsManager) statsBroadcaster(ctx context.Context) {
 						} else {
 							<-time.NewTimer(time.Second).C
 						}
-						bs, err := json.Marshal(tunnelStats)
+						bs, err := json.Marshal(s.tunnelStats)
 						lastBroadcast = time.Now()
 						if err == nil {
 							s.writeUpdate(bs)
@@ -196,12 +202,30 @@ func (s *StatsManager) receiveStats(ctx context.Context) {
 			str = str[:index]
 			var ts []*TunnelStats
 			if err = json.Unmarshal([]byte(str), &ts); err == nil {
-				fmt.Printf("%-40s %-15s %-15s %-6s\n", "Name", "Rcvd", "Sent", "Cnct")
-				for _, t := range ts {
-					_, _ = p.Printf("%-40s %-15d %-15d %-6d\n", t.Name, t.Received, t.Transmitted, t.Connections)
-				}
+				sortAndDisplay(ts)
 			}
 			str = ""
 		}
 	}
+}
+
+func sortAndDisplay(ts []*TunnelStats) {
+	sort.Slice(ts, func(i, j int) bool {
+		if ts[i].Received != ts[j].Received {
+			return ts[i].Received > ts[j].Received
+		}
+		return ts[i].id < ts[j].id
+	})
+	fmt.Printf("%-35s %-13s %-13s %-6s %-6s\n", "Name", "Rcvd", "Sent", "Actv", "Total")
+	for _, t := range ts {
+		_, _ = p.Printf(
+			"%-35s %-13d %-13d %-6d %-6d\n",
+			t.Name, t.Received, t.Transmitted, t.Connected, t.Connections,
+		)
+	}
+}
+
+func (s *StatsManager) AddTunnelStats(stats *TunnelStats) {
+	s.tunnelStats = append(s.tunnelStats, stats)
+	stats.id = len(s.tunnelStats)
 }
